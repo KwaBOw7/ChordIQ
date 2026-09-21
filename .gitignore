@@ -1,0 +1,33 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / frontend build
+node_modules/
+dist/
+
+# Secrets and local config
+.env
+.env.*
+
+# Audio: never commit songs (copyright + huge files)
+songs/*
+!songs/PUT_SONGS_HERE.txt
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+*.aac
+*.webm
+*.opus
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
