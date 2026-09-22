@@ -50,6 +50,7 @@ async def analyze_audio(
     file: UploadFile = File(...),
     meter: str | None = None,
     bpm: float | None = None,
+    key: str | None = None,
 ):
     if not file.filename:
         raise HTTPException(
@@ -94,6 +95,7 @@ async def analyze_audio(
             verbose=False,
             meter=meter,
             bpm=bpm,
+            key=key,
         )
 
         # Include the original filename so the UI
