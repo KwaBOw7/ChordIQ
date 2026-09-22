@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from audio.loader import load_audio
 from audio.features import extract_features
-from audio.key import analyze_key
+from audio.key import analyze_key, refine_key_mode
 from audio.beats import analyze_beats
 from audio.chords import analyze_chords
 from audio.progression import analyze_progression
@@ -51,7 +51,7 @@ def _clean(obj):
     return obj
 
 
-def analyze_song(song_path, verbose=True, meter=None, bpm=None):
+def analyze_song(song_path, verbose=True, meter=None, bpm=None, key=None):
     def log(msg):
         if verbose:
             print(msg, flush=True)
@@ -66,13 +66,23 @@ def analyze_song(song_path, verbose=True, meter=None, bpm=None):
     features = extract_features(y, sr)
 
     log("Analyzing key and key changes...")
-    key_data = analyze_key(features)
+    key_data = analyze_key(features, forced_key=key)
 
     log("Analyzing tempo, time signature and bars...")
     beat_data = analyze_beats(y, sr, features, forced_meter=meter, forced_bpm=bpm)
 
     log("Analyzing chords...")
     chord_data = analyze_chords(features, beat_data, key_data)
+
+    log("Checking major vs relative-minor against the chords...")
+    refined_key_data = refine_key_mode(key_data, chord_data)
+    if refined_key_data["mode_corrected_by_chords"]:
+        log(f"  -> corrected: {key_data['key']} {key_data['mode']} -> "
+            f"{refined_key_data['key']} {refined_key_data['mode']}")
+        key_data = refined_key_data
+        chord_data = analyze_chords(features, beat_data, key_data)
+    else:
+        key_data = refined_key_data
 
     log("Analyzing chord progression...")
     progression = analyze_progression(chord_data, key_data["key"], key_data["mode"])
@@ -103,6 +113,10 @@ def analyze_song(song_path, verbose=True, meter=None, bpm=None):
         "key_margin": key_data["margin"],
         "relative_key": key_data["relative"],
         "key_candidates": key_data["candidates"],
+        "key_user_forced": key_data["user_forced"],
+        "key_runner_up": key_data.get("runner_up"),
+        "key_mode_corrected": key_data.get("mode_corrected_by_chords", False),
+        "key_chord_evidence": key_data.get("chord_evidence"),
         "key_timeline": key_data["timeline"],
         "modulations": key_data["modulations"],
 
