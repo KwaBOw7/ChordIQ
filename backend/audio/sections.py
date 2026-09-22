@@ -25,6 +25,10 @@ from audio.features import HOP
 from audio.key import key_at
 
 BLOCK_LENGTHS = (8, 4, 16)
+ENERGY_WEIGHT = 0.2   # how much loudness/arrangement level counts in CLUSTERING
+                      # (kept separate from block-length detection, which is
+                      # harmony-only: chord loops repeat even when a song
+                      # builds, so tiling must not be thrown off by energy)
 TIMBRE_WEIGHT = 0.2             # harmony leads; timbre (vocals, drums) only nudges
 BLOCK_CLUSTER_DISTANCE = 0.16   # 1 - similarity below which blocks are "the same"
 LINE_CLUSTER_DISTANCE = 0.16
@@ -73,6 +77,18 @@ def _bar_features(features, bars, key_data=None):
 def _stack(F, a, b):
     v = F[a:b].reshape(-1)
     return _unit(v)
+
+
+def _energy_features(F, energy):
+    """
+    F with a loudness/arrangement column appended, for use in CLUSTERING
+    only (never in _choose_tiling). A long vamp with a static chord loop
+    but a real intro -> full-arrangement build has near-identical harmony
+    throughout; without this, that build collapses into one part.
+    """
+    z = (energy - energy.mean()) / (energy.std() + 1e-9)
+    z = np.clip(z, -2.5, 2.5)
+    return np.hstack([F, ENERGY_WEIGHT * z[:, None]])
 
 
 # ----------------------------------------------------------------- tiling
@@ -246,10 +262,15 @@ def analyze_sections(features, beat_data, chord_sequence, key_data=None):
     if L is None:
         return {**empty, "note": "Song does not repeat enough to find structure."}
 
+    # Block LENGTH comes from harmony alone (F). Which blocks count as the
+    # SAME PART also considers loudness/arrangement (Fc), so a static chord
+    # loop that quietly builds into a full arrangement is not one giant part.
+    Fc = _energy_features(F, energy)
+
     # ---- blocks ------------------------------------------------------
     starts = list(range(offset, N - L + 1, L))
     main_spans = [(s, s + L) for s in starts]
-    Vb = np.array([_stack(F, a, b) for a, b in main_spans])
+    Vb = np.array([_stack(Fc, a, b) for a, b in main_spans])
     main_clusters = _cluster_vectors(Vb, BLOCK_CLUSTER_DISTANCE)
 
     spans = list(main_spans)
@@ -263,7 +284,7 @@ def analyze_sections(features, beat_data, chord_sequence, key_data=None):
             next_id += 1
             return next_id - 1
         for (ma, mb), c in zip(main_spans, main_clusters):
-            s = _prefix_similarity(F, a, b, ma, mb)
+            s = _prefix_similarity(Fc, a, b, ma, mb)
             if s > best_s:
                 best_c, best_s = c, s
         if best_s >= 0.80:
@@ -324,7 +345,7 @@ def analyze_sections(features, beat_data, chord_sequence, key_data=None):
     if line_spans and line_spans[-1][1] < N and N - line_spans[-1][1] >= 1:
         line_spans.append((line_spans[-1][1], N))
     full_lines = [(a, b) for a, b in line_spans if b - a == Ll]
-    Vl = np.array([_stack(F, a, b) for a, b in full_lines])
+    Vl = np.array([_stack(Fc, a, b) for a, b in full_lines])
     line_cluster_of = {}
     if len(Vl) >= 2:
         lc = _cluster_vectors(Vl, LINE_CLUSTER_DISTANCE)
@@ -339,7 +360,7 @@ def analyze_sections(features, beat_data, chord_sequence, key_data=None):
             # partial line at head/tail: match by prefix, else new cluster
             best_c, best_s = None, 0.0
             for fs, c in (line_cluster_of.items() if (span[1] - span[0]) >= 0.75 * Ll else []):
-                sim = _prefix_similarity(F, span[0], span[1], fs[0], fs[1])
+                sim = _prefix_similarity(Fc, span[0], span[1], fs[0], fs[1])
                 if sim > best_s:
                     best_c, best_s = c, sim
             if best_s >= 0.80:
