@@ -26,6 +26,7 @@ function App() {
   const [error, setError] = useState("");
   const [meter, setMeter] = useState("auto");
   const [bpm, setBpm] = useState("");
+  const [songKey, setSongKey] = useState("auto");
 
   const fileInputRef = useRef(null);
 
@@ -87,6 +88,7 @@ function App() {
 
     let chosenMeter = meter;
     let chosenBpm = bpm;
+    let chosenKey = songKey;
 
     if (typeof override === "string") {
       chosenMeter = override;
@@ -94,12 +96,14 @@ function App() {
     } else if (
       override &&
       typeof override === "object" &&
-      "bpm" in override
+      ("bpm" in override || "key" in override)
     ) {
       chosenMeter = override.meter ?? meter;
       chosenBpm = override.bpm ?? "";
+      chosenKey = override.key ?? "auto";
       setMeter(chosenMeter);
       setBpm(chosenBpm);
+      setSongKey(chosenKey);
     }
 
     setLoading(true);
@@ -129,6 +133,10 @@ function App() {
         bpmNumber <= 240
       ) {
         query.set("bpm", String(bpmNumber));
+      }
+
+      if (chosenKey && chosenKey !== "auto") {
+        query.set("key", chosenKey);
       }
 
       const url = query.toString()
@@ -177,6 +185,7 @@ function App() {
     setError("");
     setMeter("auto");
     setBpm("");
+    setSongKey("auto");
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -318,6 +327,12 @@ function App() {
 
                   <div className="override-row">
 
+                    <KeySelect
+                      value={songKey}
+                      onChange={setSongKey}
+                      label="Key (optional)"
+                    />
+
                     <MeterSelect
                       value={meter}
                       onChange={setMeter}
@@ -393,6 +408,7 @@ function App() {
             result={result}
             meter={meter}
             bpm={bpm}
+            songKey={songKey}
             onReanalyze={analyzeFile}
             onNewAnalysis={resetAnalysis}
           />
@@ -458,11 +474,15 @@ function Results({
   result,
   meter,
   bpm,
+  songKey,
   onReanalyze,
   onNewAnalysis,
 }) {
   const [bpmDraft, setBpmDraft] =
     useState(bpm || "");
+
+  const [keyDraft, setKeyDraft] =
+    useState(songKey || "auto");
 
   const chords =
     result.chords || [];
@@ -522,6 +542,12 @@ function Results({
 
         <div className="results-actions">
 
+          <KeySelect
+            value={keyDraft}
+            onChange={setKeyDraft}
+            label="Wrong key? Re-analyze as"
+          />
+
           <MeterSelect
             value={
               meter !== "auto"
@@ -549,6 +575,7 @@ function Results({
                     : timeSignature.label ||
                       "auto",
                 bpm: bpmDraft,
+                key: keyDraft,
               })
             }
           >
@@ -590,7 +617,15 @@ function Results({
           label="KEY"
           value={`${result.key} ${result.mode}`}
           detail={
-            modulations.length > 0
+            result.key_user_forced
+              ? "Set by you"
+              : result.key_mode_corrected
+              ? "Corrected using the chords"
+              : result.key_runner_up
+              ? `Could also be ${
+                  result.key_runner_up.key
+                } ${result.key_runner_up.mode}`
+              : modulations.length > 0
               ? `${modulations.length} key change${
                   modulations.length > 1 ? "s" : ""
                 } · relative ${
@@ -1166,6 +1201,64 @@ const METERS = [
   "12/8",
   "9/8",
 ];
+
+
+const KEY_TONICS = [
+  "C",
+  "Db",
+  "D",
+  "Eb",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "Ab",
+  "A",
+  "Bb",
+  "B",
+];
+
+const KEYS = KEY_TONICS.flatMap(
+  (tonic) => [
+    `${tonic} major`,
+    `${tonic} minor`,
+  ]
+);
+
+
+function KeySelect({
+  value,
+  onChange,
+  label,
+}) {
+  return (
+    <label className="meter-select">
+
+      <span>{label}</span>
+
+      <select
+        value={value}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+      >
+        <option value="auto">
+          Auto-detect
+        </option>
+
+        {KEYS.map((item) => (
+          <option
+            key={item}
+            value={item}
+          >
+            {item}
+          </option>
+        ))}
+      </select>
+
+    </label>
+  );
+}
 
 
 function BpmInput({
