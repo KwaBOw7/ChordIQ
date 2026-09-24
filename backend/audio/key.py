@@ -336,7 +336,42 @@ def _key_chord_score(chords, tonic, mode):
     }
 
 
-def refine_key_mode(key_data, chords, margin=0.05):
+def _endpoint_evidence(features, tonic):
+    """
+    How present a pitch class is at the very start and end of the
+    recording, weighted toward the end (cadences are the strongest signal
+    of the tonal center). Relative major/minor keys share almost the same
+    overall note content, so a global histogram alone can't reliably tell
+    them apart; a long vamp on the vi chord can even make it look like the
+    WRONG one wins on raw duration. Endings settle the question the way a
+    listener does - where the music actually resolves - independent of
+    how much time was spent elsewhere.
+    """
+    chroma = features["chroma_smooth"]
+    sr, hop, n = features["sr"], features["hop"], features["n_frames"]
+    frame_s = hop / sr
+    duration = n * frame_s
+    if duration <= 2.0:
+        return 0.0
+
+    def window_profile(t0, t1):
+        a = max(0, int(t0 / frame_s))
+        b = min(n, int(t1 / frame_s))
+        if b <= a:
+            return None
+        v = chroma[:, a:b].sum(axis=1)
+        s = v.sum()
+        return v / s if s > 0 else None
+
+    early = window_profile(0.0, min(45.0, duration * 0.12))
+    late = window_profile(max(0.0, duration - min(20.0, duration * 0.08)), duration)
+
+    e = float(early[tonic]) if early is not None else 0.0
+    l = float(late[tonic]) if late is not None else 0.0
+    return 0.35 * e + 0.65 * l
+
+
+def refine_key_mode(key_data, chords, features=None, margin=0.05):
     """
     Re-decide major vs relative-minor using chord evidence instead of note
     content. Returns a NEW key_data dict (timeline/modulations relabelled
@@ -354,6 +389,15 @@ def refine_key_mode(key_data, chords, margin=0.05):
 
     scores = {major_key: _key_chord_score(chords, *major_key),
               minor_key: _key_chord_score(chords, *minor_key)}
+
+    # Endpoint evidence, when available, is folded in as its own term. It
+    # exists specifically to counteract the duration bias above (a vamp
+    # can make the wrong chord look "most tonic" by raw time-on-chord).
+    if features is not None:
+        for key in (major_key, minor_key):
+            scores[key]["endpoint"] = _endpoint_evidence(features, key[0])
+            scores[key]["combined"] += 0.35 * scores[key]["endpoint"]
+
     current = scores[(tonic, mode)]
     other_key = minor_key if (tonic, mode) == major_key else major_key
     other = scores[other_key]
