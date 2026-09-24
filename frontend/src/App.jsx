@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || ""
+).replace(/\/$/, "");
 
 const THEMES = [
   { name: "Crimson", color: "#ef4444" },
@@ -139,9 +142,13 @@ function App() {
         query.set("key", chosenKey);
       }
 
-      const url = query.toString()
-        ? `/api/analyze?${query.toString()}`
+      const endpoint = API_BASE_URL
+        ? `${API_BASE_URL}/analyze`
         : "/api/analyze";
+
+      const url = query.toString()
+        ? `${endpoint}?${query.toString()}`
+        : endpoint;
 
       const response = await fetch(
         url,
