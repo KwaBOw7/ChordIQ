@@ -75,7 +75,7 @@ def analyze_song(song_path, verbose=True, meter=None, bpm=None, key=None):
     chord_data = analyze_chords(features, beat_data, key_data)
 
     log("Checking major vs relative-minor against the chords...")
-    refined_key_data = refine_key_mode(key_data, chord_data)
+    refined_key_data = refine_key_mode(key_data, chord_data, features=features)
     if refined_key_data["mode_corrected_by_chords"]:
         log(f"  -> corrected: {key_data['key']} {key_data['mode']} -> "
             f"{refined_key_data['key']} {refined_key_data['mode']}")
