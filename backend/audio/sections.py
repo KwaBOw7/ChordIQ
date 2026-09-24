@@ -245,6 +245,74 @@ def _merge_inseparable(parts):
     return parts
 
 
+ESCALATED_TIMBRE_WEIGHT = 0.4   # used ONLY inside _split_long_parts, never globally
+LONG_PART_MIN_BARS = 48        # a part shorter than this is never re-split
+LONG_PART_RATIO = 3.0          # ...or shorter than this many times the median part
+
+
+def _split_long_parts(parts, F, raw_timbre, energy, L, dist):
+    """
+    A part far longer than the rest of the song may be hiding real
+    sub-structure (a vocalist change, a texture shift) that stayed under
+    the radar at the weight tuned for the WHOLE song - timbre differences
+    are real but subtle relative to how strongly identical harmony
+    dominates the block vector. Rather than raising sensitivity
+    everywhere (which was tested and found to break genuine repeat
+    detection elsewhere), only the suspiciously long part is re-examined,
+    at a higher timbre weight, using its OWN internal blocks. Everything
+    already correctly clustered is left untouched.
+    """
+    if len(parts) < 2:
+        return parts
+    lengths = [p["b"] - p["a"] for p in parts]
+    median_len = sorted(lengths)[len(lengths) // 2]
+    threshold = max(LONG_PART_MIN_BARS, LONG_PART_RATIO * median_len)
+
+    chroma_bass = F[:, :24]
+    Fc_hi = np.hstack([chroma_bass, ESCALATED_TIMBRE_WEIGHT * raw_timbre])
+
+    # Every local re-cluster below must get cluster ids that can NEVER
+    # collide with any id used elsewhere in `parts` (or by another long
+    # part split in this same call) - otherwise two musically unrelated
+    # parts that happen to both start a fresh local id at 0 look, to the
+    # caller, like the same repeated section by sheer coincidence.
+    next_id = max((p["cluster"] for p in parts), default=-1) + 1
+
+    out = []
+    for p in parts:
+        length = p["b"] - p["a"]
+        n_blocks = length // L
+        if length < threshold or n_blocks < 4:
+            out.append(p)
+            continue
+
+        sub_starts = list(range(p["a"], p["b"] - L + 1, L))
+        V = np.array([_stack(Fc_hi, a, a + L) for a in sub_starts])
+        local_clusters = _cluster_vectors(V, dist)
+
+        if max(local_clusters) == 0:   # escalation found nothing new
+            out.append(p)
+            continue
+
+        sub_clusters = [next_id + c for c in local_clusters]
+        next_id += max(local_clusters) + 1
+
+        sub_parts = []
+        for s, c in zip(sub_starts, sub_clusters):
+            if sub_parts and sub_parts[-1]["cluster"] == c:
+                sub_parts[-1]["b"] = s + L
+                sub_parts[-1]["blocks"] += 1
+            else:
+                sub_parts.append({"cluster": c, "a": s, "b": s + L, "blocks": 1})
+        remainder = p["b"] - sub_parts[-1]["b"]
+        if remainder:
+            sub_parts[-1]["b"] += remainder
+            sub_parts[-1]["blocks"] += 1
+
+        out.extend(_merge_inseparable(sub_parts))
+    return out
+
+
 # --------------------------------------------------------------------- main
 def _progression(chords, t0, t1):
     return [c for c in chords if t0 - 1e-6 <= c["start"] < t1 - 1e-6]
@@ -321,6 +389,9 @@ def analyze_sections(features, beat_data, chord_sequence, key_data=None):
             parts.append({"cluster": c, "a": a, "b": b, "blocks": 1})
 
     parts = _merge_inseparable(parts)
+
+    raw_timbre = F[:, 24:] / TIMBRE_WEIGHT
+    parts = _split_long_parts(parts, F, raw_timbre, energy, L, BLOCK_CLUSTER_DISTANCE)
 
     # keep cluster ids contiguous after merging
     remap2 = {}
