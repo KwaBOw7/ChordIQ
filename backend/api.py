@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -5,7 +6,7 @@ import tempfile
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from main import analyze_song
+from .main import analyze_song
 
 
 app = FastAPI(
@@ -14,13 +15,21 @@ app = FastAPI(
     description="Audio analysis API for ChordIQ.",
 )
 
-# Allow the React development server to communicate with FastAPI.
+# Allow the React development server and deployed Vercel frontend
+# to communicate with FastAPI.
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+frontend_origin = os.environ.get("FRONTEND_ORIGIN")
+if frontend_origin:
+    allowed_origins.append(frontend_origin.rstrip("/"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
