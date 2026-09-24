@@ -397,7 +397,6 @@ def refine_key_mode(key_data, chords, features=None, margin=0.05):
         for key in (major_key, minor_key):
             scores[key]["endpoint"] = _endpoint_evidence(features, key[0])
             scores[key]["combined"] += 0.35 * scores[key]["endpoint"]
-
     current = scores[(tonic, mode)]
     other_key = minor_key if (tonic, mode) == major_key else major_key
     other = scores[other_key]
